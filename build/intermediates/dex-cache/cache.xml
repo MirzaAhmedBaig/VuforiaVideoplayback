@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<items version="2" >
+
+    <item
+        is-multidex="false"
+        jar="/Users/mirza/Documents/Mirza@Avantari/playground/Vuforia/vuforia-sdk-android-7-1-34/build/java/vuforia/Vuforia.jar"
+        jumboMode="false"
+        optimize="true"
+        revision="25.0.3"
+        sha1="ac0e3363cd4d5997e133657ba8221c80ae48a5b2">
+        <dex dex="/Users/mirza/Documents/Mirza@Avantari/playground/Vuforia/vuforia-sdk-android-7-1-34/samples/VideoPlayback-7-1-34/app/build/intermediates/pre-dexed/debug/Vuforia_fbf67def9f1e1028e7fc3e3f68b69ed87b9c5a1c.jar" />
+    </item>
+
+</items>
