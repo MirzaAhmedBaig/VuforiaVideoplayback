@@ -9,14 +9,6 @@ countries.
 
 package com.vuforia.samples.VideoPlayback.app.VideoPlayback;
 
-import java.nio.Buffer;
-import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
-import java.util.Vector;
-
-import javax.microedition.khronos.egl.EGLConfig;
-import javax.microedition.khronos.opengles.GL10;
-
 import android.annotation.SuppressLint;
 import android.opengl.GLES11Ext;
 import android.opengl.GLES20;
@@ -33,18 +25,26 @@ import com.vuforia.Renderer;
 import com.vuforia.State;
 import com.vuforia.Tool;
 import com.vuforia.TrackableResult;
-import com.vuforia.VIDEO_BACKGROUND_REFLECTION;
 import com.vuforia.Vec2F;
 import com.vuforia.Vec3F;
 import com.vuforia.Vuforia;
-import com.vuforia.samples.SampleApplication.SampleApplicationSession;
 import com.vuforia.samples.SampleApplication.SampleAppRenderer;
 import com.vuforia.samples.SampleApplication.SampleAppRendererControl;
+import com.vuforia.samples.SampleApplication.SampleApplicationSession;
 import com.vuforia.samples.SampleApplication.utils.SampleMath;
 import com.vuforia.samples.SampleApplication.utils.SampleUtils;
 import com.vuforia.samples.SampleApplication.utils.Texture;
 import com.vuforia.samples.VideoPlayback.app.VideoPlayback.VideoPlayerHelper.MEDIA_STATE;
 import com.vuforia.samples.VideoPlayback.app.VideoPlayback.VideoPlayerHelper.MEDIA_TYPE;
+
+import java.nio.Buffer;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.util.ArrayList;
+import java.util.Vector;
+
+import javax.microedition.khronos.egl.EGLConfig;
+import javax.microedition.khronos.opengles.GL10;
 
 import static com.vuforia.samples.SampleApplication.utils.SampleMath.Vec3FCross;
 import static com.vuforia.samples.SampleApplication.utils.SampleMath.Vec3FNormalize;
@@ -483,6 +483,7 @@ public class VideoPlaybackRenderer implements GLSurfaceView.Renderer, SampleAppR
     }
 
 
+    ArrayList<Float> degs = new ArrayList<>();
     @SuppressLint("InlinedApi")
     // The render function called from SampleAppRendering by using RenderingPrimitives views.
     // The state is owned by SampleAppRenderer which is controlling it's lifecycle.
@@ -607,95 +608,27 @@ public class VideoPlaybackRenderer implements GLSurfaceView.Renderer, SampleAppR
             // the actual contents
             {
 
-                Matrix44F rotationCam = SampleMath.Matrix44FInverse(
+                Matrix44F inverse_view = SampleMath.Matrix44FInverse(
                         Tool.convertPose2GLMatrix(trackableResult.getPose()));
-                Matrix44F rotationObject = Tool.convertPose2GLMatrix(trackableResult.getPose());
-                float rotaion_cam_matrix[][] = {
-                        {rotationCam.getData()[0], rotationCam.getData()[1], rotationCam.getData()[2]},
-                        {rotationCam.getData()[4], rotationCam.getData()[5], rotationCam.getData()[6]},
-                        {rotationCam.getData()[8], rotationCam.getData()[9], rotationCam.getData()[10]}
 
-                };
-
-                float rotaion_object_matrix[][] = {
-                        {rotationObject.getData()[0], rotationObject.getData()[1], rotationObject.getData()[2]},
-                        {rotationObject.getData()[4], rotationObject.getData()[5], rotationObject.getData()[6]},
-                        {rotationObject.getData()[8], rotationObject.getData()[9], rotationObject.getData()[10]}
-
-                };
-
-                AxisAngle objectData = toAxisAngle(rotaion_object_matrix);
-                AxisAngle camData = toAxisAngle(rotaion_cam_matrix);
-
-                objectData.setX(camData.getZ());
-//                objectData.setAngle(camData.getAngle());
-
-                float outputRotationMatrix[][] = matrixFromAxisAngle(objectData );
-
-
-                float[] modelViewMatrixVideo = Tool.convertPose2GLMatrix(
-                        trackableResult.getPose()).getData();
-                float[] modelViewProjectionVideo = new float[16];
-
-                System.out.println("Start of Model View Matrix");
-                for (float aModelViewMatrixVideo : modelViewMatrixVideo) {
-                    System.out.print(aModelViewMatrixVideo + "\t");
-                }
-                System.out.println("Start of outputRotationMatrix");
-                for (int i = 0; i < 3; i++) {
-                    for (int j = 0; j < 3; j++) {
-                        System.out.print(outputRotationMatrix[i][j] + "\t");
-                    }
-                    System.out.print("\n");
-                }
-
-//                modelViewMatrixVideo[0] = outputRotationMatrix[0][0];
-//                modelViewMatrixVideo[1] = outputRotationMatrix[0][1];
-//                modelViewMatrixVideo[2] = outputRotationMatrix[0][2];
-
-//                modelViewMatrixVideo[4] = outputRotationMatrix[1][0];
-//                modelViewMatrixVideo[5] = outputRotationMatrix[1][1];
-//                modelViewMatrixVideo[6] = outputRotationMatrix[1][2];
-
-//                modelViewMatrixVideo[8] = outputRotationMatrix[2][0];
-//                modelViewMatrixVideo[9] = outputRotationMatrix[2][1];
-//                modelViewMatrixVideo[10] = outputRotationMatrix[2][2];
-
-                Matrix.rotateM(modelViewMatrixVideo,0, (float) camData.getAngle(),0.0f,0.0f,1.0f);
-                Matrix.translateM(modelViewMatrixVideo, 0, 0.0f, 0.0f,
-                        targetPositiveDimensions[currentTarget].getData()[0]);
-
-                // Here we use the aspect ratio of the video frame
-                Matrix.scaleM(modelViewMatrixVideo, 0,
-                        targetPositiveDimensions[currentTarget].getData()[0],
-                        targetPositiveDimensions[currentTarget].getData()[0]
-                                * videoQuadAspectRatio[currentTarget],
-                        targetPositiveDimensions[currentTarget].getData()[0]);
-                Matrix.multiplyMM(modelViewProjectionVideo, 0,
-                        projectionMatrix, 0, modelViewMatrixVideo, 0);
-
-                /*
-                 Matrix44F inverse_view = SampleMath.Matrix44FInverse(
-                        Tool.convertPose2GLMatrix(trackableResult.getPose()));
-                        // line of sight
+                // line of sight
                 Vec3F los = new Vec3F(-inverse_view.getData()[8], -inverse_view.getData()[9], -inverse_view.getData()[10]);
 
-                *//*Vec3F z_axis = new Vec3F(0, 0, 1);
+                Vec3F z_axis = new Vec3F(0, 0, 1);
                 Vec3F x_axis = Vec3FNormalize(Vec3FCross(los, z_axis));
-                Vec3F y_axis = Vec3FCross(z_axis, x_axis);*//*
-                Vec3F y_axis = new Vec3F(0, 0, 1);
-                Vec3F x_axis = Vec3FNormalize(Vec3FCross(los, y_axis));
-                Vec3F z_axis = Vec3FCross(x_axis, y_axis);
+                Vec3F y_axis = Vec3FCross(z_axis, x_axis);
 
 
-                float[] viewMatrixVideo = Tool.convertPose2GLMatrix(trackableResult.getPose()).getData();
                 float[] orientationMatrix = new float[]{
-                        viewMatrixVideo[0], viewMatrixVideo[1], viewMatrixVideo[2], 0,
-                        viewMatrixVideo[4], viewMatrixVideo[5], viewMatrixVideo[6], 0,
+                        x_axis.getData()[0], x_axis.getData()[1], x_axis.getData()[2], 0,
+                        y_axis.getData()[0], y_axis.getData()[1], y_axis.getData()[2], 0,
                         z_axis.getData()[0], z_axis.getData()[1], z_axis.getData()[2], 0,
                         0, 0, 0, 1
                 };
 
+                // calculate the model view projection matrix
+
+                float[] viewMatrixVideo = Tool.convertPose2GLMatrix(trackableResult.getPose()).getData();
 
                 float[] modelViewVideo = new float[16];
                 Matrix.multiplyMM(modelViewVideo, 0, viewMatrixVideo, 0, orientationMatrix, 0);
@@ -706,12 +639,8 @@ public class VideoPlaybackRenderer implements GLSurfaceView.Renderer, SampleAppR
                                 * videoQuadAspectRatio[currentTarget],
                         targetPositiveDimensions[currentTarget].getData()[0]);
 
-                *//*Matrix.translateM(modelViewVideo, 0, 0.0f, 0.0f,
-                        targetPositiveDimensions[currentTarget].getData()[0]);*//*
-
                 float[] modelViewProjectionVideo = new float[16];
-                Matrix.multiplyMM(modelViewProjectionVideo, 0, projectionMatrix, 0, modelViewVideo, 0);*/
-
+                Matrix.multiplyMM(modelViewProjectionVideo, 0, projectionMatrix, 0, modelViewVideo, 0);
 
                 GLES20.glUseProgram(videoPlaybackShaderID);
 
@@ -1165,5 +1094,86 @@ public class VideoPlaybackRenderer implements GLSurfaceView.Renderer, SampleAppR
     public double determinant(float m[][]) {
         return (double) (m[0][0] * m[1][1] * m[2][2] + m[0][1] * m[1][2] * m[2][0] + m[0][2] * m[1][0] * m[2][1] - m[0][0] * m[1][2] * m[2][1] - m[0][1] * m[1][0] * m[2][2] - m[0][2] * m[1][1] * m[2][0]);
     }
+
+    public void printAll() {
+        System.out.println("Start of Array .................  ");
+        for (int i = 0; i < degs.size(); i++) {
+            System.out.print(degs.get(i) + "  ");
+        }
+    }
+
+
+
+    /*// get the view matrix and set translation part to (0, 0, 0)
+                float[] tempViewMat = Tool.convertPose2GLMatrix(trackableResult.getPose()).getData();
+                tempViewMat[12] = 0;
+                tempViewMat[13] = 0;
+                tempViewMat[14] = 0;
+
+
+                // create the billboard matrix
+                Matrix44F billboardMatrix = new Matrix44F();
+                billboardMatrix.setData(tempViewMat);
+                billboardMatrix = SampleMath.Matrix44FInverse(billboardMatrix);
+
+
+
+                // calculate the model view projection matrix
+
+                float[] viewMatrixVideo = Tool.convertPose2GLMatrix(trackableResult.getPose()).getData();
+
+                float[] modelViewVideo = new float[16];
+
+                float newMatrix[]=billboardMatrix.getData();
+//                newMatrix[8]=viewMatrixVideo[8];
+//                newMatrix[9]=viewMatrixVideo[9];
+//                newMatrix[10]=viewMatrixVideo[10];
+
+
+
+                Matrix.multiplyMM(modelViewVideo, 0, viewMatrixVideo, 0, newMatrix, 0);
+
+                float[] modelViewProjectionVideo = new float[16];
+
+                for(int i = 0; i < 16; i += 5) {
+                    modelViewVideo[i] = 1.0f;
+                }
+
+
+                Matrix.translateM(modelViewVideo, 0, 0.0f, 0.0f,
+                        targetPositiveDimensions[currentTarget].getData()[0]);
+                Matrix.scaleM(modelViewVideo, 0,
+                        targetPositiveDimensions[currentTarget].getData()[0],
+                        targetPositiveDimensions[currentTarget].getData()[0]
+                                * videoQuadAspectRatio[currentTarget],
+                        targetPositiveDimensions[currentTarget].getData()[0]);
+                Matrix.multiplyMM(modelViewProjectionVideo, 0, projectionMatrix, 0, modelViewVideo, 0);*/
+
+
+                /*float[] modelViewMatrixVideo = Tool.convertPose2GLMatrix(
+                        trackableResult.getPose()).getData();
+                float[] modelViewProjectionVideo = new float[16];
+                Matrix44F invTranspMV = SampleMath.Matrix44FTranspose(SampleMath.Matrix44FInverse(Tool.convertPose2GLMatrix(trackableResult.getPose())));
+
+                double heading, attitude, bank;
+                heading = Math.toDegrees(Math.asin(invTranspMV.getData()[4]))+90;
+                // Here we use the aspect ratio of the video frame
+
+                Log.d(LOGTAG,"Rotation Deg : "+(float) -heading);
+                Matrix.rotateM(modelViewMatrixVideo, 0, (float) -heading, 0.0f, 0.f, 1.0f);
+
+
+
+                Matrix.translateM(modelViewMatrixVideo, 0, 0.0f, 0.0f,
+                        targetPositiveDimensions[currentTarget].getData()[0]);
+
+                // Here we use the aspect ratio of the video frame
+                Matrix.scaleM(modelViewMatrixVideo, 0,
+                        targetPositiveDimensions[currentTarget].getData()[0],
+                        targetPositiveDimensions[currentTarget].getData()[0]
+                                * videoQuadAspectRatio[currentTarget],
+                        targetPositiveDimensions[currentTarget].getData()[0]);
+                Matrix.multiplyMM(modelViewProjectionVideo, 0,
+                        projectionMatrix, 0, modelViewMatrixVideo, 0);*/
 
 }

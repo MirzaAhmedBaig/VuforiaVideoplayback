@@ -9,8 +9,6 @@ countries.
 
 package com.vuforia.samples.VideoPlayback.app.VideoPlayback;
 
-import java.util.Vector;
-
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.DialogInterface;
@@ -34,8 +32,8 @@ import com.vuforia.CameraDevice;
 import com.vuforia.DataSet;
 import com.vuforia.HINT;
 import com.vuforia.ObjectTracker;
-import com.vuforia.State;
 import com.vuforia.STORAGE_TYPE;
+import com.vuforia.State;
 import com.vuforia.Tracker;
 import com.vuforia.TrackerManager;
 import com.vuforia.Vuforia;
@@ -50,6 +48,8 @@ import com.vuforia.samples.VideoPlayback.app.VideoPlayback.VideoPlayerHelper.MED
 import com.vuforia.samples.VideoPlayback.ui.SampleAppMenu.SampleAppMenu;
 import com.vuforia.samples.VideoPlayback.ui.SampleAppMenu.SampleAppMenuGroup;
 import com.vuforia.samples.VideoPlayback.ui.SampleAppMenu.SampleAppMenuInterface;
+
+import java.util.Vector;
 
 
 // The AR activity for the VideoPlayback sample.
@@ -176,6 +176,7 @@ public class VideoPlayback extends Activity implements
                                     || (mVideoPlayerHelper[i].getStatus() == MEDIA_STATE.REACHED_END)) {
                                 // Pause all other media
                                 pauseAll(i);
+                                mRenderer.printAll();
 
                                 // If it has reached the end then rewind
                                 if ((mVideoPlayerHelper[i].getStatus() == MEDIA_STATE.REACHED_END))
@@ -187,6 +188,7 @@ public class VideoPlayback extends Activity implements
                             } else if (mVideoPlayerHelper[i].getStatus() == MEDIA_STATE.PLAYING) {
                                 // If it is playing then we pause it
                                 mVideoPlayerHelper[i].pause();
+                                mRenderer.printAll();
                             }
                         } else if (mVideoPlayerHelper[i].isPlayableFullscreen()) {
                             // If it isn't playable on texture
