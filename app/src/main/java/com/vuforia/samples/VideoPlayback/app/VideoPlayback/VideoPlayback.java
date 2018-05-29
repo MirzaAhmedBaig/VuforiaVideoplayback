@@ -9,8 +9,6 @@ countries.
 
 package com.vuforia.samples.VideoPlayback.app.VideoPlayback;
 
-import java.util.Vector;
-
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.DialogInterface;
@@ -28,14 +26,15 @@ import android.view.GestureDetector.SimpleOnGestureListener;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup.LayoutParams;
+import android.widget.Button;
 import android.widget.RelativeLayout;
 
 import com.vuforia.CameraDevice;
 import com.vuforia.DataSet;
 import com.vuforia.HINT;
 import com.vuforia.ObjectTracker;
-import com.vuforia.State;
 import com.vuforia.STORAGE_TYPE;
+import com.vuforia.State;
 import com.vuforia.Tracker;
 import com.vuforia.TrackerManager;
 import com.vuforia.Vuforia;
@@ -51,15 +50,20 @@ import com.vuforia.samples.VideoPlayback.ui.SampleAppMenu.SampleAppMenu;
 import com.vuforia.samples.VideoPlayback.ui.SampleAppMenu.SampleAppMenuGroup;
 import com.vuforia.samples.VideoPlayback.ui.SampleAppMenu.SampleAppMenuInterface;
 
+import java.util.Vector;
+
 
 // The AR activity for the VideoPlayback sample.
 public class VideoPlayback extends Activity implements
         SampleApplicationControl, SampleAppMenuInterface {
     private static final String LOGTAG = "VideoPlayback";
+    public static boolean isTrackerChanged = false;
 
     SampleApplicationSession vuforiaAppSession;
 
     Activity mActivity;
+
+    private Button plus, minus;
 
     // Helpers to detect events such as double tapping:
     private GestureDetector mGestureDetector = null;
@@ -176,6 +180,7 @@ public class VideoPlayback extends Activity implements
                                     || (mVideoPlayerHelper[i].getStatus() == MEDIA_STATE.REACHED_END)) {
                                 // Pause all other media
                                 pauseAll(i);
+                                mRenderer.printAll();
 
                                 // If it has reached the end then rewind
                                 if ((mVideoPlayerHelper[i].getStatus() == MEDIA_STATE.REACHED_END))
@@ -187,6 +192,7 @@ public class VideoPlayback extends Activity implements
                             } else if (mVideoPlayerHelper[i].getStatus() == MEDIA_STATE.PLAYING) {
                                 // If it is playing then we pause it
                                 mVideoPlayerHelper[i].pause();
+                                mRenderer.printAll();
                             }
                         } else if (mVideoPlayerHelper[i].isPlayableFullscreen()) {
                             // If it isn't playable on texture
@@ -222,6 +228,24 @@ public class VideoPlayback extends Activity implements
                 }
 
                 return true;
+            }
+        });
+
+        plus = (Button) findViewById(R.id.plus);
+        minus = (Button) findViewById(R.id.minus);
+
+        plus.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                mRenderer.plusAngle();
+            }
+        });
+
+        minus.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                mRenderer.minusAngle();
+
             }
         });
     }
@@ -706,6 +730,11 @@ public class VideoPlayback extends Activity implements
 
     @Override
     public void onVuforiaUpdate(State state) {
+        if (state.getNumTrackableResults() == 0) {
+            Log.d(LOGTAG, "No Tracker Found");
+        } else {
+            Log.d(LOGTAG, "Tracker Found:");
+        }
     }
 
     final private static int CMD_BACK = -1;

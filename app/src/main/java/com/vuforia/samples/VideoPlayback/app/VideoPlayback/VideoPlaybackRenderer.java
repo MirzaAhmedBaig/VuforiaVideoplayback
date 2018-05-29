@@ -9,14 +9,6 @@ countries.
 
 package com.vuforia.samples.VideoPlayback.app.VideoPlayback;
 
-import java.nio.Buffer;
-import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
-import java.util.Vector;
-
-import javax.microedition.khronos.egl.EGLConfig;
-import javax.microedition.khronos.opengles.GL10;
-
 import android.annotation.SuppressLint;
 import android.opengl.GLES11Ext;
 import android.opengl.GLES20;
@@ -33,21 +25,26 @@ import com.vuforia.Renderer;
 import com.vuforia.State;
 import com.vuforia.Tool;
 import com.vuforia.TrackableResult;
-import com.vuforia.VIDEO_BACKGROUND_REFLECTION;
 import com.vuforia.Vec2F;
 import com.vuforia.Vec3F;
 import com.vuforia.Vuforia;
-import com.vuforia.samples.SampleApplication.SampleApplicationSession;
 import com.vuforia.samples.SampleApplication.SampleAppRenderer;
 import com.vuforia.samples.SampleApplication.SampleAppRendererControl;
+import com.vuforia.samples.SampleApplication.SampleApplicationSession;
 import com.vuforia.samples.SampleApplication.utils.SampleMath;
 import com.vuforia.samples.SampleApplication.utils.SampleUtils;
 import com.vuforia.samples.SampleApplication.utils.Texture;
 import com.vuforia.samples.VideoPlayback.app.VideoPlayback.VideoPlayerHelper.MEDIA_STATE;
 import com.vuforia.samples.VideoPlayback.app.VideoPlayback.VideoPlayerHelper.MEDIA_TYPE;
 
-import static com.vuforia.samples.SampleApplication.utils.SampleMath.Vec3FCross;
-import static com.vuforia.samples.SampleApplication.utils.SampleMath.Vec3FNormalize;
+import java.nio.Buffer;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.util.ArrayList;
+import java.util.Vector;
+
+import javax.microedition.khronos.egl.EGLConfig;
+import javax.microedition.khronos.opengles.GL10;
 
 
 // The renderer class for the VideoPlayback sample.
@@ -56,6 +53,7 @@ public class VideoPlaybackRenderer implements GLSurfaceView.Renderer, SampleAppR
 
     SampleApplicationSession vuforiaAppSession;
     SampleAppRenderer mSampleAppRenderer;
+    float init_cam_x;
 
     // Video Playback Rendering Specific
     private int videoPlaybackShaderID = 0;
@@ -122,6 +120,9 @@ public class VideoPlaybackRenderer implements GLSurfaceView.Renderer, SampleAppR
     short quadIndicesArray[] = {0, 1, 2, 2, 3, 0};
 
     Buffer quadVertices, quadTexCoords, quadIndices;
+    float init_cam_y;
+    float init_cam_z;
+    ArrayList<Float> degs = new ArrayList<>();
 
     private boolean mIsActive = false;
     private Matrix44F tappingProjectionMatrix = null;
@@ -134,6 +135,9 @@ public class VideoPlaybackRenderer implements GLSurfaceView.Renderer, SampleAppR
     private boolean mShouldPlayImmediately[] = null;
     private long mLostTrackingSince[] = null;
     private boolean mLoadRequested[] = null;
+    private boolean isTrackerChanged = false;
+    private float oldAttitude = 0f;
+    private boolean isFirst = true;
 
     VideoPlayback mActivity;
 
@@ -482,393 +486,8 @@ public class VideoPlaybackRenderer implements GLSurfaceView.Renderer, SampleAppR
         mSampleAppRenderer.updateRenderingPrimitives();
     }
 
-
-    @SuppressLint("InlinedApi")
-    // The render function called from SampleAppRendering by using RenderingPrimitives views.
-    // The state is owned by SampleAppRenderer which is controlling it's lifecycle.
-    // State should not be cached outside this method.
-    public void renderFrame(State state, float[] projectionMatrix) {
-        // Renders video background replacing Renderer.DrawVideoBackground()
-        mSampleAppRenderer.renderVideoBackground();
-
-        GLES20.glEnable(GLES20.GL_DEPTH_TEST);
-
-        // We must detect if background reflection is active and adjust the
-        // culling direction.
-        // If the reflection is active, this means the post matrix has been
-        // reflected as well,
-        // therefore standard counter clockwise face culling will result in
-        // "inside out" models.
-        GLES20.glEnable(GLES20.GL_CULL_FACE);
-        GLES20.glCullFace(GLES20.GL_BACK);
-
-        if (tappingProjectionMatrix == null) {
-            tappingProjectionMatrix = new Matrix44F();
-            tappingProjectionMatrix.setData(projectionMatrix);
-        }
-
-        float temp[] = {0.0f, 0.0f, 0.0f};
-        for (int i = 0; i < VideoPlayback.NUM_TARGETS; i++) {
-            isTracking[i] = false;
-            targetPositiveDimensions[i].setData(temp);
-        }
-
-        // Did we find any trackables this frame?
-        for (int tIdx = 0; tIdx < state.getNumTrackableResults(); tIdx++) {
-            // Get the trackable:
-            TrackableResult trackableResult = state.getTrackableResult(tIdx);
-
-            ImageTarget imageTarget = (ImageTarget) trackableResult
-                    .getTrackable();
-
-            int currentTarget;
-
-            // We store the modelview matrix to be used later by the tap
-            // calculation
-            if (imageTarget.getName().compareTo("stones") == 0)
-                currentTarget = VideoPlayback.STONES;
-            else
-                currentTarget = VideoPlayback.CHIPS;
-
-            modelViewMatrix[currentTarget] = Tool
-                    .convertPose2GLMatrix(trackableResult.getPose());
-
-            isTracking[currentTarget] = true;
-
-            targetPositiveDimensions[currentTarget] = imageTarget.getSize();
-
-            // The pose delivers the center of the target, thus the dimensions
-            // go from -width/2 to width/2, same for height
-            temp[0] = targetPositiveDimensions[currentTarget].getData()[0] / 2.0f;
-            temp[1] = targetPositiveDimensions[currentTarget].getData()[1] / 2.0f;
-            targetPositiveDimensions[currentTarget].setData(temp);
-
-            // If the movie is ready to start playing or it has reached the end
-            // of playback we render the keyframe
-            if ((currentStatus[currentTarget] == VideoPlayerHelper.MEDIA_STATE.READY)
-                    || (currentStatus[currentTarget] == VideoPlayerHelper.MEDIA_STATE.REACHED_END)
-                    || (currentStatus[currentTarget] == VideoPlayerHelper.MEDIA_STATE.NOT_READY)
-                    || (currentStatus[currentTarget] == VideoPlayerHelper.MEDIA_STATE.ERROR)) {
-                float[] modelViewMatrixKeyframe = Tool.convertPose2GLMatrix(
-                        trackableResult.getPose()).getData();
-                float[] modelViewProjectionKeyframe = new float[16];
-                Matrix.translateM(modelViewMatrixKeyframe, 0, 0.0f, 0.0f,
-                        targetPositiveDimensions[currentTarget].getData()[0]);
-
-                // Here we use the aspect ratio of the keyframe since it
-                // is likely that it is not a perfect square
-
-                float ratio = 1.0f;
-                if (mTextures.get(currentTarget).mSuccess)
-                    ratio = keyframeQuadAspectRatio[currentTarget];
-                else
-                    ratio = targetPositiveDimensions[currentTarget].getData()[1]
-                            / targetPositiveDimensions[currentTarget].getData()[0];
-
-                Matrix.scaleM(modelViewMatrixKeyframe, 0,
-                        targetPositiveDimensions[currentTarget].getData()[0],
-                        targetPositiveDimensions[currentTarget].getData()[0]
-                                * ratio,
-                        targetPositiveDimensions[currentTarget].getData()[0]);
-                Matrix.multiplyMM(modelViewProjectionKeyframe, 0,
-                        projectionMatrix, 0, modelViewMatrixKeyframe, 0);
-
-                GLES20.glUseProgram(keyframeShaderID);
-
-                // Prepare for rendering the keyframe
-                GLES20.glVertexAttribPointer(keyframeVertexHandle, 3,
-                        GLES20.GL_FLOAT, false, 0, quadVertices);
-                GLES20.glVertexAttribPointer(keyframeTexCoordHandle, 2,
-                        GLES20.GL_FLOAT, false, 0, quadTexCoords);
-
-                GLES20.glEnableVertexAttribArray(keyframeVertexHandle);
-                GLES20.glEnableVertexAttribArray(keyframeTexCoordHandle);
-
-                GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
-
-                // The first loaded texture from the assets folder is the
-                // keyframe
-                GLES20.glBindTexture(GLES20.GL_TEXTURE_2D,
-                        mTextures.get(currentTarget).mTextureID[0]);
-                GLES20.glUniformMatrix4fv(keyframeMVPMatrixHandle, 1, false,
-                        modelViewProjectionKeyframe, 0);
-                GLES20.glUniform1i(keyframeTexSampler2DHandle, 0);
-
-                // Render
-                GLES20.glDrawElements(GLES20.GL_TRIANGLES, NUM_QUAD_INDEX,
-                        GLES20.GL_UNSIGNED_SHORT, quadIndices);
-
-                GLES20.glDisableVertexAttribArray(keyframeVertexHandle);
-                GLES20.glDisableVertexAttribArray(keyframeTexCoordHandle);
-
-                GLES20.glUseProgram(0);
-            } else
-            // In any other case, such as playing or paused, we render
-            // the actual contents
-            {
-
-                Matrix44F rotationCam = SampleMath.Matrix44FInverse(
-                        Tool.convertPose2GLMatrix(trackableResult.getPose()));
-                Matrix44F rotationObject = Tool.convertPose2GLMatrix(trackableResult.getPose());
-                float rotaion_cam_matrix[][] = {
-                        {rotationCam.getData()[0], rotationCam.getData()[1], rotationCam.getData()[2]},
-                        {rotationCam.getData()[4], rotationCam.getData()[5], rotationCam.getData()[6]},
-                        {rotationCam.getData()[8], rotationCam.getData()[9], rotationCam.getData()[10]}
-
-                };
-
-                float rotaion_object_matrix[][] = {
-                        {rotationObject.getData()[0], rotationObject.getData()[1], rotationObject.getData()[2]},
-                        {rotationObject.getData()[4], rotationObject.getData()[5], rotationObject.getData()[6]},
-                        {rotationObject.getData()[8], rotationObject.getData()[9], rotationObject.getData()[10]}
-
-                };
-
-                AxisAngle objectData = toAxisAngle(rotaion_object_matrix);
-                AxisAngle camData = toAxisAngle(rotaion_cam_matrix);
-
-                objectData.setX(camData.getZ());
-//                objectData.setAngle(camData.getAngle());
-
-                float outputRotationMatrix[][] = matrixFromAxisAngle(objectData );
-
-
-                float[] modelViewMatrixVideo = Tool.convertPose2GLMatrix(
-                        trackableResult.getPose()).getData();
-                float[] modelViewProjectionVideo = new float[16];
-
-                System.out.println("Start of Model View Matrix");
-                for (float aModelViewMatrixVideo : modelViewMatrixVideo) {
-                    System.out.print(aModelViewMatrixVideo + "\t");
-                }
-                System.out.println("Start of outputRotationMatrix");
-                for (int i = 0; i < 3; i++) {
-                    for (int j = 0; j < 3; j++) {
-                        System.out.print(outputRotationMatrix[i][j] + "\t");
-                    }
-                    System.out.print("\n");
-                }
-
-//                modelViewMatrixVideo[0] = outputRotationMatrix[0][0];
-//                modelViewMatrixVideo[1] = outputRotationMatrix[0][1];
-//                modelViewMatrixVideo[2] = outputRotationMatrix[0][2];
-
-//                modelViewMatrixVideo[4] = outputRotationMatrix[1][0];
-//                modelViewMatrixVideo[5] = outputRotationMatrix[1][1];
-//                modelViewMatrixVideo[6] = outputRotationMatrix[1][2];
-
-//                modelViewMatrixVideo[8] = outputRotationMatrix[2][0];
-//                modelViewMatrixVideo[9] = outputRotationMatrix[2][1];
-//                modelViewMatrixVideo[10] = outputRotationMatrix[2][2];
-
-                Matrix.rotateM(modelViewMatrixVideo,0, (float) camData.getAngle(),0.0f,0.0f,1.0f);
-                Matrix.translateM(modelViewMatrixVideo, 0, 0.0f, 0.0f,
-                        targetPositiveDimensions[currentTarget].getData()[0]);
-
-                // Here we use the aspect ratio of the video frame
-                Matrix.scaleM(modelViewMatrixVideo, 0,
-                        targetPositiveDimensions[currentTarget].getData()[0],
-                        targetPositiveDimensions[currentTarget].getData()[0]
-                                * videoQuadAspectRatio[currentTarget],
-                        targetPositiveDimensions[currentTarget].getData()[0]);
-                Matrix.multiplyMM(modelViewProjectionVideo, 0,
-                        projectionMatrix, 0, modelViewMatrixVideo, 0);
-
-                /*
-                 Matrix44F inverse_view = SampleMath.Matrix44FInverse(
-                        Tool.convertPose2GLMatrix(trackableResult.getPose()));
-                        // line of sight
-                Vec3F los = new Vec3F(-inverse_view.getData()[8], -inverse_view.getData()[9], -inverse_view.getData()[10]);
-
-                *//*Vec3F z_axis = new Vec3F(0, 0, 1);
-                Vec3F x_axis = Vec3FNormalize(Vec3FCross(los, z_axis));
-                Vec3F y_axis = Vec3FCross(z_axis, x_axis);*//*
-                Vec3F y_axis = new Vec3F(0, 0, 1);
-                Vec3F x_axis = Vec3FNormalize(Vec3FCross(los, y_axis));
-                Vec3F z_axis = Vec3FCross(x_axis, y_axis);
-
-
-                float[] viewMatrixVideo = Tool.convertPose2GLMatrix(trackableResult.getPose()).getData();
-                float[] orientationMatrix = new float[]{
-                        viewMatrixVideo[0], viewMatrixVideo[1], viewMatrixVideo[2], 0,
-                        viewMatrixVideo[4], viewMatrixVideo[5], viewMatrixVideo[6], 0,
-                        z_axis.getData()[0], z_axis.getData()[1], z_axis.getData()[2], 0,
-                        0, 0, 0, 1
-                };
-
-
-                float[] modelViewVideo = new float[16];
-                Matrix.multiplyMM(modelViewVideo, 0, viewMatrixVideo, 0, orientationMatrix, 0);
-
-                Matrix.scaleM(modelViewVideo, 0,
-                        targetPositiveDimensions[currentTarget].getData()[0],
-                        targetPositiveDimensions[currentTarget].getData()[0]
-                                * videoQuadAspectRatio[currentTarget],
-                        targetPositiveDimensions[currentTarget].getData()[0]);
-
-                *//*Matrix.translateM(modelViewVideo, 0, 0.0f, 0.0f,
-                        targetPositiveDimensions[currentTarget].getData()[0]);*//*
-
-                float[] modelViewProjectionVideo = new float[16];
-                Matrix.multiplyMM(modelViewProjectionVideo, 0, projectionMatrix, 0, modelViewVideo, 0);*/
-
-
-                GLES20.glUseProgram(videoPlaybackShaderID);
-
-                // Prepare for rendering the keyframe
-                GLES20.glVertexAttribPointer(videoPlaybackVertexHandle, 3,
-                        GLES20.GL_FLOAT, false, 0, quadVertices);
-
-                if (imageTarget.getName().compareTo("stones") == 0)
-                    GLES20.glVertexAttribPointer(videoPlaybackTexCoordHandle,
-                            2, GLES20.GL_FLOAT, false, 0,
-                            fillBuffer(videoQuadTextureCoordsTransformedStones));
-                else
-                    GLES20.glVertexAttribPointer(videoPlaybackTexCoordHandle,
-                            2, GLES20.GL_FLOAT, false, 0,
-                            fillBuffer(videoQuadTextureCoordsTransformedChips));
-
-                GLES20.glEnableVertexAttribArray(videoPlaybackVertexHandle);
-                GLES20.glEnableVertexAttribArray(videoPlaybackTexCoordHandle);
-
-                GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
-
-                // IMPORTANT:
-                // Notice here that the texture that we are binding is not the
-                // typical GL_TEXTURE_2D but instead the GL_TEXTURE_EXTERNAL_OES
-                GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES,
-                        videoPlaybackTextureID[currentTarget]);
-                GLES20.glUniformMatrix4fv(videoPlaybackMVPMatrixHandle, 1,
-                        false, modelViewProjectionVideo, 0);
-                GLES20.glUniform1i(videoPlaybackTexSamplerOESHandle, 0);
-
-                // Render
-                GLES20.glDrawElements(GLES20.GL_TRIANGLES, NUM_QUAD_INDEX,
-                        GLES20.GL_UNSIGNED_SHORT, quadIndices);
-
-                GLES20.glDisableVertexAttribArray(videoPlaybackVertexHandle);
-                GLES20.glDisableVertexAttribArray(videoPlaybackTexCoordHandle);
-
-                GLES20.glUseProgram(0);
-
-            }
-
-            // The following section renders the icons. The actual textures used
-            // are loaded from the assets folder
-
-            if ((currentStatus[currentTarget] == VideoPlayerHelper.MEDIA_STATE.READY)
-                    || (currentStatus[currentTarget] == VideoPlayerHelper.MEDIA_STATE.REACHED_END)
-                    || (currentStatus[currentTarget] == VideoPlayerHelper.MEDIA_STATE.PAUSED)
-                    || (currentStatus[currentTarget] == VideoPlayerHelper.MEDIA_STATE.NOT_READY)
-                    || (currentStatus[currentTarget] == VideoPlayerHelper.MEDIA_STATE.ERROR)) {
-                // If the movie is ready to be played, pause, has reached end or
-                // is not
-                // ready then we display one of the icons
-                float[] modelViewMatrixButton = Tool.convertPose2GLMatrix(
-                        trackableResult.getPose()).getData();
-                float[] modelViewProjectionButton = new float[16];
-
-                GLES20.glDepthFunc(GLES20.GL_LEQUAL);
-
-                GLES20.glEnable(GLES20.GL_BLEND);
-                GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA,
-                        GLES20.GL_ONE_MINUS_SRC_ALPHA);
-
-                // The inacuracy of the rendering process in some devices means
-                // that
-                // even if we use the "Less or Equal" version of the depth
-                // function
-                // it is likely that we will get ugly artifacts
-                // That is the translation in the Z direction is slightly
-                // different
-                // Another posibility would be to use a depth func "ALWAYS" but
-                // that is typically not a good idea
-                Matrix
-                        .translateM(
-                                modelViewMatrixButton,
-                                0,
-                                0.0f,
-                                0.0f,
-                                targetPositiveDimensions[currentTarget].getData()[1] / 10.98f);
-                Matrix
-                        .scaleM(
-                                modelViewMatrixButton,
-                                0,
-                                (targetPositiveDimensions[currentTarget].getData()[1] / 2.0f),
-                                (targetPositiveDimensions[currentTarget].getData()[1] / 2.0f),
-                                (targetPositiveDimensions[currentTarget].getData()[1] / 2.0f));
-                Matrix.multiplyMM(modelViewProjectionButton, 0,
-                        projectionMatrix, 0, modelViewMatrixButton, 0);
-
-                GLES20.glUseProgram(keyframeShaderID);
-
-                GLES20.glVertexAttribPointer(keyframeVertexHandle, 3,
-                        GLES20.GL_FLOAT, false, 0, quadVertices);
-                GLES20.glVertexAttribPointer(keyframeTexCoordHandle, 2,
-                        GLES20.GL_FLOAT, false, 0, quadTexCoords);
-
-                GLES20.glEnableVertexAttribArray(keyframeVertexHandle);
-                GLES20.glEnableVertexAttribArray(keyframeTexCoordHandle);
-
-                GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
-
-                // Depending on the status in which we are we choose the
-                // appropriate
-                // texture to display. Notice that unlike the video these are
-                // regular
-                // GL_TEXTURE_2D textures
-                switch (currentStatus[currentTarget]) {
-                    case READY:
-                        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D,
-                                mTextures.get(2).mTextureID[0]);
-                        break;
-                    case REACHED_END:
-                        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D,
-                                mTextures.get(2).mTextureID[0]);
-                        break;
-                    case PAUSED:
-                        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D,
-                                mTextures.get(2).mTextureID[0]);
-                        break;
-                    case NOT_READY:
-                        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D,
-                                mTextures.get(3).mTextureID[0]);
-                        break;
-                    case ERROR:
-                        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D,
-                                mTextures.get(4).mTextureID[0]);
-                        break;
-                    default:
-                        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D,
-                                mTextures.get(3).mTextureID[0]);
-                        break;
-                }
-                GLES20.glUniformMatrix4fv(keyframeMVPMatrixHandle, 1, false,
-                        modelViewProjectionButton, 0);
-                GLES20.glUniform1i(keyframeTexSampler2DHandle, 0);
-
-                // Render
-                GLES20.glDrawElements(GLES20.GL_TRIANGLES, NUM_QUAD_INDEX,
-                        GLES20.GL_UNSIGNED_SHORT, quadIndices);
-
-                GLES20.glDisableVertexAttribArray(keyframeVertexHandle);
-                GLES20.glDisableVertexAttribArray(keyframeTexCoordHandle);
-
-                GLES20.glUseProgram(0);
-
-                // Finally we return the depth func to its original state
-                GLES20.glDepthFunc(GLES20.GL_LESS);
-                GLES20.glDisable(GLES20.GL_BLEND);
-            }
-
-            SampleUtils.checkGLError("VideoPlayback renderFrame");
-        }
-
-        GLES20.glDisable(GLES20.GL_DEPTH_TEST);
-
-        Renderer.getInstance().end();
-
-    }
+    private boolean isNegative = false;
+    private float angle = 0;
 
 
     boolean isTapOnScreenInsideTarget(int target, float x, float y) {
@@ -1164,6 +783,533 @@ public class VideoPlaybackRenderer implements GLSurfaceView.Renderer, SampleAppR
 
     public double determinant(float m[][]) {
         return (double) (m[0][0] * m[1][1] * m[2][2] + m[0][1] * m[1][2] * m[2][0] + m[0][2] * m[1][0] * m[2][1] - m[0][0] * m[1][2] * m[2][1] - m[0][1] * m[1][0] * m[2][2] - m[0][2] * m[1][1] * m[2][0]);
+    }
+
+    public static float[] getOrientation(float[] R) {
+        /*
+         * 4x4 (length=16) case:
+         *   /  R[ 0]   R[ 1]   R[ 2]   0  \
+         *   |  R[ 4]   R[ 5]   R[ 6]   0  |
+         *   |  R[ 8]   R[ 9]   R[10]   0  |
+         *   \      0       0       0   1  /
+         *
+         * 3x3 (length=9) case:
+         *   /  R[ 0]   R[ 1]   R[ 2]  \
+         *   |  R[ 3]   R[ 4]   R[ 5]  |
+         *   \  R[ 6]   R[ 7]   R[ 8]  /
+         *
+         */
+        float values[] = new float[3];
+        if (R.length == 9) {
+            values[0] = (float) Math.atan2(R[1], R[4]);
+            values[1] = (float) Math.asin(-R[7]);
+            values[2] = (float) Math.atan2(-R[6], R[8]);
+        } else {
+            values[0] = (float) Math.atan2(R[1], R[5]);
+            values[1] = (float) Math.asin(-R[9]);
+            values[2] = (float) Math.atan2(-R[8], R[10]);
+        }
+        //yaw, roll, pitch
+        return values;
+    }
+
+    @SuppressLint("InlinedApi")
+    // The render function called from SampleAppRendering by using RenderingPrimitives views.
+    // The state is owned by SampleAppRenderer which is controlling it's lifecycle.
+    // State should not be cached outside this method.
+    public void renderFrame(State state, float[] projectionMatrix) {
+        // Renders video background replacing Renderer.DrawVideoBackground()
+        mSampleAppRenderer.renderVideoBackground();
+
+        GLES20.glEnable(GLES20.GL_DEPTH_TEST);
+
+        // We must detect if background reflection is active and adjust the
+        // culling direction.
+        // If the reflection is active, this means the post matrix has been
+        // reflected as well,
+        // therefore standard counter clockwise face culling will result in
+        // "inside out" models.
+        GLES20.glEnable(GLES20.GL_CULL_FACE);
+        GLES20.glCullFace(GLES20.GL_BACK);
+
+        if (tappingProjectionMatrix == null) {
+            tappingProjectionMatrix = new Matrix44F();
+            tappingProjectionMatrix.setData(projectionMatrix);
+        }
+
+        float temp[] = {0.0f, 0.0f, 0.0f};
+        for (int i = 0; i < VideoPlayback.NUM_TARGETS; i++) {
+            isTracking[i] = false;
+            targetPositiveDimensions[i].setData(temp);
+        }
+
+        // Did we find any trackables this frame?
+        for (int tIdx = 0; tIdx < state.getNumTrackableResults(); tIdx++) {
+            // Get the trackable:
+            TrackableResult trackableResult = state.getTrackableResult(tIdx);
+
+            ImageTarget imageTarget = (ImageTarget) trackableResult
+                    .getTrackable();
+            int currentTarget;
+
+            // We store the modelview matrix to be used later by the tap
+            // calculation
+            if (imageTarget.getName().compareTo("stones") == 0)
+                currentTarget = VideoPlayback.STONES;
+            else
+                currentTarget = VideoPlayback.CHIPS;
+
+            modelViewMatrix[currentTarget] = Tool
+                    .convertPose2GLMatrix(trackableResult.getPose());
+
+            isTracking[currentTarget] = true;
+
+            targetPositiveDimensions[currentTarget] = imageTarget.getSize();
+
+            // The pose delivers the center of the target, thus the dimensions
+            // go from -width/2 to width/2, same for height
+            temp[0] = targetPositiveDimensions[currentTarget].getData()[0] / 2.0f;
+            temp[1] = targetPositiveDimensions[currentTarget].getData()[1] / 2.0f;
+            targetPositiveDimensions[currentTarget].setData(temp);
+
+            // If the movie is ready to start playing or it has reached the end
+            // of playback we render the keyframe
+            if ((currentStatus[currentTarget] == VideoPlayerHelper.MEDIA_STATE.READY)
+                    || (currentStatus[currentTarget] == VideoPlayerHelper.MEDIA_STATE.REACHED_END)
+                    || (currentStatus[currentTarget] == VideoPlayerHelper.MEDIA_STATE.NOT_READY)
+                    || (currentStatus[currentTarget] == VideoPlayerHelper.MEDIA_STATE.ERROR)) {
+                float[] modelViewMatrixKeyframe = Tool.convertPose2GLMatrix(
+                        trackableResult.getPose()).getData();
+                float[] modelViewProjectionKeyframe = new float[16];
+                Matrix.translateM(modelViewMatrixKeyframe, 0, 0.0f, 0.0f,
+                        targetPositiveDimensions[currentTarget].getData()[0]);
+
+
+                // Here we use the aspect ratio of the keyframe since it
+                // is likely that it is not a perfect square
+
+                float ratio = 1.0f;
+                if (mTextures.get(currentTarget).mSuccess)
+                    ratio = keyframeQuadAspectRatio[currentTarget];
+                else
+                    ratio = targetPositiveDimensions[currentTarget].getData()[1]
+                            / targetPositiveDimensions[currentTarget].getData()[0];
+
+                Matrix.scaleM(modelViewMatrixKeyframe, 0,
+                        targetPositiveDimensions[currentTarget].getData()[0],
+                        targetPositiveDimensions[currentTarget].getData()[0]
+                                * ratio,
+                        targetPositiveDimensions[currentTarget].getData()[0]);
+                Matrix.multiplyMM(modelViewProjectionKeyframe, 0,
+                        projectionMatrix, 0, modelViewMatrixKeyframe, 0);
+
+                GLES20.glUseProgram(keyframeShaderID);
+
+                // Prepare for rendering the keyframe
+                GLES20.glVertexAttribPointer(keyframeVertexHandle, 3,
+                        GLES20.GL_FLOAT, false, 0, quadVertices);
+                GLES20.glVertexAttribPointer(keyframeTexCoordHandle, 2,
+                        GLES20.GL_FLOAT, false, 0, quadTexCoords);
+
+                GLES20.glEnableVertexAttribArray(keyframeVertexHandle);
+                GLES20.glEnableVertexAttribArray(keyframeTexCoordHandle);
+
+                GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
+
+                // The first loaded texture from the assets folder is the
+                // keyframe
+                GLES20.glBindTexture(GLES20.GL_TEXTURE_2D,
+                        mTextures.get(currentTarget).mTextureID[0]);
+                GLES20.glUniformMatrix4fv(keyframeMVPMatrixHandle, 1, false,
+                        modelViewProjectionKeyframe, 0);
+                GLES20.glUniform1i(keyframeTexSampler2DHandle, 0);
+
+                // Render
+                GLES20.glDrawElements(GLES20.GL_TRIANGLES, NUM_QUAD_INDEX,
+                        GLES20.GL_UNSIGNED_SHORT, quadIndices);
+
+                GLES20.glDisableVertexAttribArray(keyframeVertexHandle);
+                GLES20.glDisableVertexAttribArray(keyframeTexCoordHandle);
+
+                GLES20.glUseProgram(0);
+            } else
+            // In any other case, such as playing or paused, we render
+            // the actual contents
+            {
+
+
+                Matrix44F invTranspMV = SampleMath.Matrix44FTranspose(SampleMath.Matrix44FInverse(Tool.convertPose2GLMatrix(trackableResult.getPose())));
+//            Matrix44F invTranspMV = SampleMath.Matrix44FInverse(Tool.convertPose2GLMatrix(
+//                    trackableResult.getPose()));
+
+                //Extract the camera position from the last column of the matrix computed before:
+
+
+                //Extract the camera orientation axis (camera viewing direction, camera right direction and camera up direction):
+
+                float cam_right_x = invTranspMV.getData()[0];
+
+                float cam_right_y = invTranspMV.getData()[1];
+
+                float cam_right_z = invTranspMV.getData()[2];
+
+
+                float cam_up_x = -invTranspMV.getData()[4];
+
+                float cam_up_y = -invTranspMV.getData()[5];
+
+                float cam_up_z = -invTranspMV.getData()[6];
+
+
+                float cam_dir_x = invTranspMV.getData()[8];
+
+                float cam_dir_y = invTranspMV.getData()[9];
+
+                float cam_dir_z = invTranspMV.getData()[10];
+
+            /*Log.d(LOGTAG, "# Camera \n"
+                    + "\ncam_x : " + cam_x
+                    + "\ncam_y : " + cam_y
+                    + "\ncam_z : " + cam_z
+                    + "\ncam_right_x : " + cam_right_x
+                    + "\ncam_right_y : " + cam_right_y
+                    + "\ncam_right_z : " + cam_right_z
+                    + "\ncam_up_x : " + cam_up_x
+                    + "\ncam_up_y : " + cam_up_y
+                    + "\ncam_up_z : " + cam_up_z
+                    + "\ncam_dir_x : " + cam_dir_x
+                    + "\ncam_dir_y : " + cam_dir_y
+                    + "\ncam_dir_z : " + cam_dir_z
+            );*/
+
+
+                float[] modelViewMatrixVideo = Tool.convertPose2GLMatrix(
+                        trackableResult.getPose()).getData();
+                float[] modelViewProjectionVideo = new float[16];
+
+
+                float cam_x = invTranspMV.getData()[12];
+
+                float cam_y = invTranspMV.getData()[13];
+
+                float cam_z = invTranspMV.getData()[14];
+
+                float _x = modelViewMatrixVideo[12];
+
+                float _y = modelViewMatrixVideo[13];
+
+                float _z = modelViewMatrixVideo[14];
+
+                if (!isTrackerChanged) {
+                    init_cam_x = invTranspMV.getData()[12];
+                    init_cam_y = invTranspMV.getData()[13];
+                    init_cam_z = invTranspMV.getData()[14];
+                }
+
+                Log.d(LOGTAG, "Object Posisiont (x,y,z) ");
+
+                float bd = (float) Math.sqrt((_x - init_cam_x) * (_x - init_cam_x) + (_y - init_cam_y) * (_y - init_cam_y));
+                float cd = (float) Math.sqrt((init_cam_x - cam_x) * (init_cam_x - cam_x) + (init_cam_y - cam_y) * (init_cam_y - cam_y));
+                float ad = (float) Math.sqrt((_x - cam_x) * (_x - cam_x) + (_y - cam_y) * (_y - cam_y));
+
+                float b_angle = (float) Math.acos(((ad * ad) + (cd * cd) - (bd * bd)) / (2 * ad * cd));
+                float c_angle = (float) Math.asin((cd * Math.sin(b_angle)) / bd);
+//                Log.d(LOGTAG,"Change in angle a : "+(180-Math.toDegrees(c_angle)+Math.toDegrees(b_angle)));
+//                Log.d(LOGTAG,"Change in angle b : "+Math.toDegrees(b_angle));
+//                Log.d(LOGTAG,"Change in angle c : "+Math.toDegrees(c_angle));
+
+
+//                Matrix44F invTranspMV = SampleMath.Matrix44FTranspose(SampleMath.Matrix44FInverse(Tool.convertPose2GLMatrix(trackableResult.getPose())));
+
+                float[][] invTranspMVR = {
+                        {invTranspMV.getData()[0], invTranspMV.getData()[1], invTranspMV.getData()[2]},
+                        {invTranspMV.getData()[4], invTranspMV.getData()[5], invTranspMV.getData()[6]},
+                        {invTranspMV.getData()[8], invTranspMV.getData()[9], invTranspMV.getData()[10]}
+                };
+
+                float[][] projMat = {
+                        {projectionMatrix[0], projectionMatrix[1], projectionMatrix[2], projectionMatrix[3]},
+                        {projectionMatrix[4], projectionMatrix[5], projectionMatrix[6], projectionMatrix[7]},
+                        {projectionMatrix[8], projectionMatrix[9], projectionMatrix[10], projectionMatrix[11]},
+                        {projectionMatrix[12], projectionMatrix[13], projectionMatrix[14], projectionMatrix[15]}
+                };
+
+
+                double pitch = Math.atan2(-invTranspMVR[2][0], Math.sqrt(invTranspMVR[2][1] * invTranspMVR[2][1] + invTranspMVR[2][2] * invTranspMVR[2][2]));
+
+                float angle1 = (float) columnMatrixToAngles(projMat);
+
+                Matrix.rotateM(modelViewMatrixVideo, 0, (float) Math.toDegrees(pitch), 0.0f, 0.f, 1.0f);
+
+                Matrix.translateM(modelViewMatrixVideo, 0, 0.0f, 0.0f,
+                        targetPositiveDimensions[currentTarget].getData()[0]);
+                // Here we use the aspect ratio of the video frame
+                Matrix.scaleM(modelViewMatrixVideo, 0,
+                        targetPositiveDimensions[currentTarget].getData()[0],
+                        targetPositiveDimensions[currentTarget].getData()[0]
+                                * videoQuadAspectRatio[currentTarget],
+                        targetPositiveDimensions[currentTarget].getData()[0]);
+                Matrix.multiplyMM(modelViewProjectionVideo, 0,
+                        projectionMatrix, 0, modelViewMatrixVideo, 0);
+
+                GLES20.glUseProgram(videoPlaybackShaderID);
+
+                // Prepare for rendering the keyframe
+                GLES20.glVertexAttribPointer(videoPlaybackVertexHandle, 3,
+                        GLES20.GL_FLOAT, false, 0, quadVertices);
+
+                if (imageTarget.getName().compareTo("stones") == 0)
+                    GLES20.glVertexAttribPointer(videoPlaybackTexCoordHandle,
+                            2, GLES20.GL_FLOAT, false, 0,
+                            fillBuffer(videoQuadTextureCoordsTransformedStones));
+                else
+                    GLES20.glVertexAttribPointer(videoPlaybackTexCoordHandle,
+                            2, GLES20.GL_FLOAT, false, 0,
+                            fillBuffer(videoQuadTextureCoordsTransformedChips));
+
+                GLES20.glEnableVertexAttribArray(videoPlaybackVertexHandle);
+                GLES20.glEnableVertexAttribArray(videoPlaybackTexCoordHandle);
+
+                GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
+
+                // IMPORTANT:
+                // Notice here that the texture that we are binding is not the
+                // typical GL_TEXTURE_2D but instead the GL_TEXTURE_EXTERNAL_OES
+                GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES,
+                        videoPlaybackTextureID[currentTarget]);
+                GLES20.glUniformMatrix4fv(videoPlaybackMVPMatrixHandle, 1,
+                        false, modelViewProjectionVideo, 0);
+                GLES20.glUniform1i(videoPlaybackTexSamplerOESHandle, 0);
+
+                // Render
+                GLES20.glDrawElements(GLES20.GL_TRIANGLES, NUM_QUAD_INDEX,
+                        GLES20.GL_UNSIGNED_SHORT, quadIndices);
+
+                GLES20.glDisableVertexAttribArray(videoPlaybackVertexHandle);
+                GLES20.glDisableVertexAttribArray(videoPlaybackTexCoordHandle);
+
+                GLES20.glUseProgram(0);
+
+            }
+
+            // The following section renders the icons. The actual textures used
+            // are loaded from the assets folder
+
+            if ((currentStatus[currentTarget] == VideoPlayerHelper.MEDIA_STATE.READY)
+                    || (currentStatus[currentTarget] == VideoPlayerHelper.MEDIA_STATE.REACHED_END)
+                    || (currentStatus[currentTarget] == VideoPlayerHelper.MEDIA_STATE.PAUSED)
+                    || (currentStatus[currentTarget] == VideoPlayerHelper.MEDIA_STATE.NOT_READY)
+                    || (currentStatus[currentTarget] == VideoPlayerHelper.MEDIA_STATE.ERROR)) {
+                // If the movie is ready to be played, pause, has reached end or
+                // is not
+                // ready then we display one of the icons
+                float[] modelViewMatrixButton = Tool.convertPose2GLMatrix(
+                        trackableResult.getPose()).getData();
+                float[] modelViewProjectionButton = new float[16];
+
+                GLES20.glDepthFunc(GLES20.GL_LEQUAL);
+
+                GLES20.glEnable(GLES20.GL_BLEND);
+                GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA,
+                        GLES20.GL_ONE_MINUS_SRC_ALPHA);
+
+                // The inacuracy of the rendering process in some devices means
+                // that
+                // even if we use the "Less or Equal" version of the depth
+                // function
+                // it is likely that we will get ugly artifacts
+                // That is the translation in the Z direction is slightly
+                // different
+                // Another posibility would be to use a depth func "ALWAYS" but
+                // that is typically not a good idea
+                Matrix
+                        .translateM(
+                                modelViewMatrixButton,
+                                0,
+                                0.0f,
+                                0.0f,
+                                targetPositiveDimensions[currentTarget].getData()[1] / 10.98f);
+                Matrix
+                        .scaleM(
+                                modelViewMatrixButton,
+                                0,
+                                (targetPositiveDimensions[currentTarget].getData()[1] / 2.0f),
+                                (targetPositiveDimensions[currentTarget].getData()[1] / 2.0f),
+                                (targetPositiveDimensions[currentTarget].getData()[1] / 2.0f));
+                Matrix.multiplyMM(modelViewProjectionButton, 0,
+                        projectionMatrix, 0, modelViewMatrixButton, 0);
+
+                GLES20.glUseProgram(keyframeShaderID);
+
+                GLES20.glVertexAttribPointer(keyframeVertexHandle, 3,
+                        GLES20.GL_FLOAT, false, 0, quadVertices);
+                GLES20.glVertexAttribPointer(keyframeTexCoordHandle, 2,
+                        GLES20.GL_FLOAT, false, 0, quadTexCoords);
+
+                GLES20.glEnableVertexAttribArray(keyframeVertexHandle);
+                GLES20.glEnableVertexAttribArray(keyframeTexCoordHandle);
+
+                GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
+
+                // Depending on the status in which we are we choose the
+                // appropriate
+                // texture to display. Notice that unlike the video these are
+                // regular
+                // GL_TEXTURE_2D textures
+                switch (currentStatus[currentTarget]) {
+                    case READY:
+                        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D,
+                                mTextures.get(2).mTextureID[0]);
+                        break;
+                    case REACHED_END:
+                        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D,
+                                mTextures.get(2).mTextureID[0]);
+                        break;
+                    case PAUSED:
+                        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D,
+                                mTextures.get(2).mTextureID[0]);
+                        break;
+                    case NOT_READY:
+                        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D,
+                                mTextures.get(3).mTextureID[0]);
+                        break;
+                    case ERROR:
+                        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D,
+                                mTextures.get(4).mTextureID[0]);
+                        break;
+                    default:
+                        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D,
+                                mTextures.get(3).mTextureID[0]);
+                        break;
+                }
+                GLES20.glUniformMatrix4fv(keyframeMVPMatrixHandle, 1, false,
+                        modelViewProjectionButton, 0);
+                GLES20.glUniform1i(keyframeTexSampler2DHandle, 0);
+
+                // Render
+                GLES20.glDrawElements(GLES20.GL_TRIANGLES, NUM_QUAD_INDEX,
+                        GLES20.GL_UNSIGNED_SHORT, quadIndices);
+
+                GLES20.glDisableVertexAttribArray(keyframeVertexHandle);
+                GLES20.glDisableVertexAttribArray(keyframeTexCoordHandle);
+
+                GLES20.glUseProgram(0);
+
+                // Finally we return the depth func to its original state
+                GLES20.glDepthFunc(GLES20.GL_LESS);
+                GLES20.glDisable(GLES20.GL_BLEND);
+            }
+
+            SampleUtils.checkGLError("VideoPlayback renderFrame");
+        }
+
+        GLES20.glDisable(GLES20.GL_DEPTH_TEST);
+
+        Renderer.getInstance().end();
+
+        if (state.getNumTrackableResults() == 0) {
+            isTrackerChanged = false;
+        } else {
+            isTrackerChanged = true;
+        }
+
+    }
+
+    public void printAll() {
+        System.out.println("Strart of Array .................  ");
+        for (int i = 0; i < degs.size(); i++) {
+            System.out.print(degs.get(i) + "  ");
+        }
+    }
+
+    private float[] convertToDegrees(float[] vector) {
+        for (int i = 0; i < vector.length; i++) {
+            vector[i] = Math.round(Math.toDegrees(vector[i]));
+        }
+        return vector;
+    }
+
+    private Vec3F rotationMatrixToEulerAngles(float[][] R) {
+
+        assert (isRotationMatrix(R)) : "";
+
+        float sy = (float) Math.sqrt(R[0][0] * R[0][0] + R[1][0] * R[1][0]);
+
+        boolean singular = sy < 1e-6; // If
+
+        float x, y, z;
+        if (!singular) {
+            x = (float) Math.atan2(R[2][1], R[2][2]);
+            y = (float) Math.atan2(-R[2][0], sy);
+            z = (float) Math.atan2(R[1][0], R[0][0]);
+        } else {
+            x = (float) Math.atan2(-R[1][2], R[1][1]);
+            y = (float) Math.atan2(-R[2][0], sy);
+            z = 0;
+        }
+        return new Vec3F(x, y, z);
+
+
+    }
+
+    private double atan2(double y, double x) {
+        if (x > 0) {
+            return Math.atan(y / x);
+        } else if (x < 0 && y >= 0) {
+            return Math.atan(y / x) + Math.PI;
+        } else if (x < 0 && y < 0) {
+            return Math.atan(y / x) - Math.PI;
+        } else if (x == 0 && y > 0) {
+            return Math.PI / 2;
+        } else if (x == 0 && y < 0) {
+            return -Math.PI / 2;
+        } else {
+            //not valid
+            return 0;
+        }
+    }
+
+    void plusAngle() {
+        angle += 10;
+        Log.d(LOGTAG, "Plus angle :" + angle);
+    }
+
+    void minusAngle() {
+        angle -= 10;
+        Log.d(LOGTAG, "Minus angle :" + angle);
+    }
+
+
+    double columnMatrixToAngles(float colMatrix[][]) {
+        double sinPitch, cosPitch, sinRoll, cosRoll, sinYaw, cosYaw;
+
+        sinPitch = -colMatrix[2][0];
+        cosPitch = Math.sqrt(1 - sinPitch * sinPitch);
+
+        if (Math.abs(cosPitch) > Math.E) {
+            sinRoll = colMatrix[2][1] / cosPitch;
+            cosRoll = colMatrix[2][2] / cosPitch;
+            sinYaw = colMatrix[1][0] / cosPitch;
+            cosYaw = colMatrix[0][0] / cosPitch;
+        } else {
+            sinRoll = -colMatrix[1][2];
+            cosRoll = colMatrix[1][1];
+            sinYaw = 0;
+            cosYaw = 1;
+        }
+
+        double yaw = atan2(sinYaw, cosYaw) * 180 / Math.PI;
+        double pitch = atan2(sinPitch, cosPitch) * 180 / Math.PI;
+        double roll = atan2(sinRoll, cosRoll) * 180 / Math.PI;
+
+//        Log.d(LOGTAG, "YAW : " + yaw);
+//        Log.d(LOGTAG, "PITCH : " + pitch);
+//        Log.d(LOGTAG, "Roll : " + roll);
+
+        /*Log.d(LOGTAG,"YAW deg: "+Math.toDegrees(yaw));
+        Log.d(LOGTAG,"PITCH deg: "+Math.toDegrees(pitch));
+        Log.d(LOGTAG,"Roll deg: "+Math.toDegrees(roll));*/
+        return pitch;
     }
 
 }

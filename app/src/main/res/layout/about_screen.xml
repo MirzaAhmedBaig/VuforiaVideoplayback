@@ -35,5 +35,6 @@
         android:layout_below="@id/about_text_title"
         android:layout_above="@id/button_start"
         />
-        
+
+
 </RelativeLayout>
